@@ -19,7 +19,7 @@ export const uploadFileInChunks = async (
   const timestamp = Date.now();
   const fileName = `${userId}/${timestamp}.${fileExt}`;
 
-  console.log('🚀 Starting MAXIMUM SPEED upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+  console.log('🚀 Starting optimized upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
 
   const totalChunks = Math.ceil(file.size / UPLOAD_CONFIG.CHUNK_SIZE);
   let uploadedChunks = 0;
@@ -33,36 +33,34 @@ export const uploadFileInChunks = async (
     speed: '0 MB/s'
   }]);
 
-  // Pre-create all chunks with correct slicing
+  // Create chunks with optimized size for better reliability
   const chunks: ChunkData[] = [];
-  console.log(`📦 Creating ${totalChunks} chunks for ${(file.size / 1024 / 1024).toFixed(1)}MB file`);
+  console.log(`📦 Creating ${totalChunks} chunks of ~${(UPLOAD_CONFIG.CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB each`);
   
   for (let i = 0; i < totalChunks; i++) {
     const start = i * UPLOAD_CONFIG.CHUNK_SIZE;
     const end = Math.min(start + UPLOAD_CONFIG.CHUNK_SIZE, file.size);
     const chunk = file.slice(start, end);
-    const actualChunkSize = chunk.size;
     
-    console.log(`📦 Chunk ${i + 1}: ${start}-${end}, size: ${(actualChunkSize / 1024 / 1024).toFixed(1)}MB`);
+    console.log(`📦 Chunk ${i + 1}: ${(start / 1024 / 1024).toFixed(1)}MB-${(end / 1024 / 1024).toFixed(1)}MB, size: ${(chunk.size / 1024 / 1024).toFixed(1)}MB`);
     
     chunks.push({
       index: i,
       chunk: chunk,
       fileName: totalChunks === 1 ? fileName : `${fileName}.part${i}`,
-      size: actualChunkSize
+      size: chunk.size
     });
   }
 
   try {
-    // Upload function with timeout and abort controller
-    const uploadWithTimeout = async (chunkData: ChunkData) => {
+    // Upload function with improved error handling and retry logic
+    const uploadChunk = async (chunkData: ChunkData) => {
       const { index, chunk, fileName: chunkFileName, size } = chunkData;
       const chunkStartTime = performance.now();
       
       console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
-        // Create abort controller for timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
           console.log(`⏰ Timeout for chunk ${index + 1}, attempt ${attempt + 1}`);
@@ -70,13 +68,7 @@ export const uploadFileInChunks = async (
         }, UPLOAD_CONFIG.CONNECTION_TIMEOUT);
 
         try {
-          // Verify chunk size before upload
-          if (chunk.size !== size) {
-            console.error(`❌ Chunk size mismatch: expected ${size}, got ${chunk.size}`);
-            throw new Error(`Chunk size mismatch: expected ${size}, got ${chunk.size}`);
-          }
-
-          console.log(`🔄 Attempting upload for chunk ${index + 1}, attempt ${attempt + 1}`);
+          console.log(`🔄 Upload attempt ${attempt + 1} for chunk ${index + 1}`);
 
           const { error: uploadError } = await supabase.storage
             .from('user-files')
@@ -86,14 +78,15 @@ export const uploadFileInChunks = async (
               contentType: file.type || 'application/octet-stream'
             });
 
-          // Clear timeout on successful response
           clearTimeout(timeoutId);
 
           if (uploadError) {
             console.error(`❌ Upload error for chunk ${index + 1}:`, uploadError);
             if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw uploadError;
-            console.warn(`🔄 Retry chunk ${index + 1}, attempt ${attempt + 2}`);
-            await new Promise(resolve => setTimeout(resolve, UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt)));
+            
+            const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt);
+            console.log(`⏳ Retrying chunk ${index + 1} in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
 
@@ -101,7 +94,7 @@ export const uploadFileInChunks = async (
           const chunkSpeed = (size / chunkTime / 1024 / 1024).toFixed(1);
           console.log(`✅ Chunk ${index + 1} uploaded in ${chunkTime.toFixed(2)}s at ${chunkSpeed} MB/s`);
           
-          // Update progress immediately after each chunk
+          // Update progress
           uploadedChunks++;
           const currentProgress = (uploadedChunks / totalChunks) * 100;
           const elapsed = (performance.now() - startTime) / 1000;
@@ -132,7 +125,6 @@ export const uploadFileInChunks = async (
           
           if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw error;
           
-          // Exponential backoff with jitter
           const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt) + Math.random() * 1000;
           console.log(`⏳ Waiting ${delay.toFixed(0)}ms before retry...`);
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -140,12 +132,12 @@ export const uploadFileInChunks = async (
       }
     };
 
-    // Process chunks sequentially to avoid overwhelming the connection
+    // Upload chunks sequentially for better reliability
     console.log(`🔥 Starting sequential upload of ${chunks.length} chunks`);
     
     for (let i = 0; i < chunks.length; i++) {
       console.log(`🚀 Processing chunk ${i + 1}/${chunks.length}`);
-      await uploadWithTimeout(chunks[i]);
+      await uploadChunk(chunks[i]);
     }
 
     // Determine final file reference
@@ -187,7 +179,7 @@ export const uploadFileInChunks = async (
 
     const totalTime = (performance.now() - startTime) / 1000;
     const avgSpeed = (file.size / totalTime / 1024 / 1024).toFixed(1);
-    console.log(`🎉 MAXIMUM SPEED UPLOAD COMPLETE! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
+    console.log(`🎉 Upload complete! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
 
     return true;
   } catch (error) {
