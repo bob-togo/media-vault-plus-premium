@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Zap, X } from 'lucide-react';
+import { Upload, X } from 'lucide-react';
 import { UserProfile } from '@/hooks/useUserProfile';
 import { UPLOAD_CONFIG } from './upload/uploadConfig';
 import { uploadFileInChunks } from './upload/chunkUploadUtils';
@@ -68,13 +68,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       let successCount = 0;
       const uploadStartTime = performance.now();
       
-      // Process files with MAXIMUM PARALLEL SPEED optimization
+      // Process files sequentially
       for (const file of acceptedFiles) {
         if (cancellationTokenRef.current.cancelled) {
           break;
         }
         
-        console.log('🚀 Processing file with PARALLEL upload:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+        console.log('Processing file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
         await uploadFileInChunks(file, user.id, setUploadProgress, cancellationTokenRef.current);
         successCount++;
       }
@@ -85,8 +85,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
         const avgSpeed = (totalSize / totalTime / 1024 / 1024).toFixed(1);
 
         toast({
-          title: "🚀 HIGH-SPEED PARALLEL UPLOAD COMPLETE!",
-          description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed with parallel processing.`,
+          title: "Upload Complete!",
+          description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed.`,
         });
 
         onUploadComplete();
@@ -99,7 +99,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
 
     } catch (error) {
       if (!error.message.includes('cancelled')) {
-        console.error('💥 Upload failed:', error);
+        console.error('Upload failed:', error);
         toast({
           title: "Upload Failed",
           description: error instanceof Error ? error.message : 'An error occurred during upload',
@@ -136,11 +136,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
           >
             <input {...getInputProps()} />
             <div className="flex justify-center mb-4">
-              {uploading ? (
-                <Zap className="h-12 w-12 text-blue-600 animate-pulse" />
-              ) : (
-                <Upload className="h-12 w-12 text-muted-foreground" />
-              )}
+              <Upload className="h-12 w-12 text-muted-foreground" />
             </div>
             {uploading ? (
               <div className="space-y-4">
@@ -155,19 +151,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                 </Button>
               </div>
             ) : isDragActive ? (
-              <p className="text-lg font-medium text-blue-600">🚀 Drop files for HIGH-SPEED PARALLEL upload...</p>
+              <p className="text-lg font-medium text-blue-600">Drop files for upload...</p>
             ) : (
               <div>
                 <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
                 <p className="text-sm text-muted-foreground">
                   Supports images, videos, PDFs, and documents (max 2GB per file)
                 </p>
-                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-xs text-blue-700 font-semibold flex items-center justify-center gap-1">
-                    <Zap className="h-3 w-3" />
-                    HIGH-SPEED PARALLEL: 5MB chunks • 6 concurrent uploads • Optimized for maximum speed
-                  </p>
-                </div>
                 <p className="text-xs text-muted-foreground mt-2">
                   Storage: {Math.round(storagePercentage)}% used
                 </p>

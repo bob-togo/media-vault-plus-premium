@@ -25,7 +25,7 @@ export const uploadFileInChunks = async (
   const timestamp = Date.now();
   const fileName = `${userId}/${timestamp}.${fileExt}`;
 
-  console.log('🚀 Starting HIGH-SPEED PARALLEL upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+  console.log('Starting upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
 
   const totalChunks = Math.ceil(file.size / UPLOAD_CONFIG.CHUNK_SIZE);
   let uploadedChunks = 0;
@@ -39,9 +39,9 @@ export const uploadFileInChunks = async (
     speed: '0 MB/s'
   }]);
 
-  // Create chunks with optimized size for parallel processing
+  // Create chunks
   const chunks: ChunkData[] = [];
-  console.log(`📦 Creating ${totalChunks} chunks of ~${(UPLOAD_CONFIG.CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB each for PARALLEL processing`);
+  console.log(`Creating ${totalChunks} chunks of ~${(UPLOAD_CONFIG.CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB each`);
   
   for (let i = 0; i < totalChunks; i++) {
     const start = i * UPLOAD_CONFIG.CHUNK_SIZE;
@@ -58,16 +58,16 @@ export const uploadFileInChunks = async (
   }
 
   try {
-    // High-speed upload function with minimal overhead
+    // Upload function
     const uploadChunk = async (chunkData: ChunkData) => {
       const { index, chunk, fileName: chunkFileName, size, mimeType } = chunkData;
       const chunkStartTime = performance.now();
       
-      console.log(`⚡ FAST uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
+      console.log(`Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
         if (cancellationToken.cancelled) {
-          console.log(`🛑 Upload cancelled for chunk ${index + 1}`);
+          console.log(`Upload cancelled for chunk ${index + 1}`);
           throw new Error('Upload cancelled by user');
         }
 
@@ -86,7 +86,7 @@ export const uploadFileInChunks = async (
           clearTimeout(timeoutId);
 
           if (uploadError) {
-            console.error(`❌ Upload error for chunk ${index + 1}:`, uploadError);
+            console.error(`Upload error for chunk ${index + 1}:`, uploadError);
             if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw uploadError;
             
             const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt);
@@ -96,9 +96,9 @@ export const uploadFileInChunks = async (
 
           const chunkTime = (performance.now() - chunkStartTime) / 1000;
           const chunkSpeed = (size / chunkTime / 1024 / 1024).toFixed(1);
-          console.log(`✅ Chunk ${index + 1} uploaded in ${chunkTime.toFixed(2)}s at ${chunkSpeed} MB/s`);
+          console.log(`Chunk ${index + 1} uploaded in ${chunkTime.toFixed(2)}s at ${chunkSpeed} MB/s`);
           
-          // Update progress atomically
+          // Update progress
           uploadedChunks++;
           const currentProgress = (uploadedChunks / totalChunks) * 100;
           const elapsed = (performance.now() - startTime) / 1000;
@@ -120,9 +120,9 @@ export const uploadFileInChunks = async (
           clearTimeout(timeoutId);
           
           if (error.name === 'AbortError') {
-            console.error(`⏰ Chunk ${index + 1} upload timed out (attempt ${attempt + 1})`);
+            console.error(`Chunk ${index + 1} upload timed out (attempt ${attempt + 1})`);
           } else {
-            console.error(`❌ Chunk ${index + 1} upload error (attempt ${attempt + 1}):`, error);
+            console.error(`Chunk ${index + 1} upload error (attempt ${attempt + 1}):`, error);
           }
           
           if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw error;
@@ -133,38 +133,22 @@ export const uploadFileInChunks = async (
       }
     };
 
-    // PARALLEL UPLOAD - Process chunks in batches for maximum speed
-    console.log(`🔥 Starting PARALLEL upload with ${UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS} concurrent uploads`);
+    // Sequential upload
+    console.log(`Starting sequential upload`);
     
-    const uploadPromises: Promise<any>[] = [];
-    const semaphore = new Array(UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS).fill(null);
-    
-    for (let i = 0; i < chunks.length; i++) {
+    for (const chunk of chunks) {
       if (cancellationToken.cancelled) {
-        console.log(`🛑 Upload cancelled at chunk ${i + 1}/${chunks.length}`);
+        console.log(`Upload cancelled`);
         throw new Error('Upload cancelled by user');
       }
-
-      // Wait for an available slot
-      const slotIndex = i % UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS;
-      if (semaphore[slotIndex]) {
-        await semaphore[slotIndex];
-      }
-      
-      // Start upload and store promise
-      const uploadPromise = uploadChunk(chunks[i]);
-      semaphore[slotIndex] = uploadPromise;
-      uploadPromises.push(uploadPromise);
+      await uploadChunk(chunk);
     }
-
-    // Wait for all uploads to complete
-    await Promise.all(uploadPromises);
 
     // Determine final file reference
     let finalFileName = fileName;
     if (totalChunks > 1) {
       finalFileName = `${fileName}.part0`;
-      console.log('📁 Multi-chunk PARALLEL upload completed, using first chunk as reference');
+      console.log('Multi-chunk upload completed, using first chunk as reference');
     }
 
     // Get public URL
@@ -172,7 +156,7 @@ export const uploadFileInChunks = async (
       .from('user-files')
       .getPublicUrl(finalFileName);
 
-    console.log('🔗 Public URL generated:', publicUrl);
+    console.log('Public URL generated:', publicUrl);
 
     // Database insert
     const { error: dbError } = await supabase
@@ -186,7 +170,7 @@ export const uploadFileInChunks = async (
       });
 
     if (dbError) {
-      console.error('💾 Database error:', dbError);
+      console.error('Database error:', dbError);
       throw dbError;
     }
 
@@ -199,11 +183,11 @@ export const uploadFileInChunks = async (
 
     const totalTime = (performance.now() - startTime) / 1000;
     const avgSpeed = (file.size / totalTime / 1024 / 1024).toFixed(1);
-    console.log(`🎉 HIGH-SPEED PARALLEL upload complete! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
+    console.log(`Upload complete! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
 
     return true;
   } catch (error) {
-    console.error('💥 Upload failed:', error);
+    console.error('Upload failed:', error);
     
     // Update progress based on error type
     const status = error.message.includes('cancelled') ? 'cancelled' : 'error';
