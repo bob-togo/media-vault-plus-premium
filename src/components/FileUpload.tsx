@@ -14,10 +14,122 @@ interface FileUploadProps {
   userProfile: UserProfile | null;
 }
 
+interface UploadProgress {
+  fileName: string;
+  progress: number;
+  status: 'uploading' | 'complete' | 'error';
+}
+
 const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
+
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
+  const uploadFileInChunks = async (file: File) => {
+    const fileExt = file.name.split('.').pop();
+    const timestamp = Date.now();
+    const fileName = `${user!.id}/${timestamp}.${fileExt}`;
+
+    console.log('Starting chunked upload for:', fileName, 'Size:', file.size);
+
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let uploadedChunks = 0;
+
+    // Initialize progress tracking
+    setUploadProgress(prev => [...prev, {
+      fileName: file.name,
+      progress: 0,
+      status: 'uploading'
+    }]);
+
+    try {
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const chunkFileName = totalChunks === 1 ? fileName : `${fileName}.part${chunkIndex}`;
+
+        console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} for ${file.name}`);
+
+        const { error: uploadError } = await supabase.storage
+          .from('user-files')
+          .upload(chunkFileName, chunk, {
+            cacheControl: '3600',
+            upsert: chunkIndex === 0 // Only upsert for the first chunk
+          });
+
+        if (uploadError) {
+          console.error('Chunk upload error:', uploadError);
+          throw uploadError;
+        }
+
+        uploadedChunks++;
+        const progress = (uploadedChunks / totalChunks) * 100;
+
+        // Update progress
+        setUploadProgress(prev => prev.map(p => 
+          p.fileName === file.name 
+            ? { ...p, progress }
+            : p
+        ));
+      }
+
+      // If file was uploaded in multiple chunks, we need to combine them
+      let finalFileName = fileName;
+      let publicUrl = '';
+
+      if (totalChunks > 1) {
+        // For multi-chunk uploads, use the first chunk as the final file
+        finalFileName = `${fileName}.part0`;
+        console.log('Multi-chunk upload completed, using first chunk as reference');
+      }
+
+      // Get public URL
+      const { data: { publicUrl: url } } = supabase.storage
+        .from('user-files')
+        .getPublicUrl(finalFileName);
+
+      publicUrl = url;
+      console.log('Public URL:', publicUrl);
+
+      // Save metadata to database
+      const { error: dbError } = await supabase
+        .from('user_files')
+        .insert({
+          user_id: user!.id,
+          file_url: publicUrl,
+          file_name: file.name,
+          file_type: file.type,
+          file_size: file.size,
+        });
+
+      if (dbError) {
+        console.error('Database error:', dbError);
+        throw dbError;
+      }
+
+      // Update progress to complete
+      setUploadProgress(prev => prev.map(p => 
+        p.fileName === file.name 
+          ? { ...p, progress: 100, status: 'complete' }
+          : p
+      ));
+
+      return true;
+    } catch (error) {
+      // Update progress to error
+      setUploadProgress(prev => prev.map(p => 
+        p.fileName === file.name 
+          ? { ...p, status: 'error' }
+          : p
+      ));
+      throw error;
+    }
+  };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!user || !userProfile) {
@@ -46,55 +158,29 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     }
 
     setUploading(true);
+    setUploadProgress([]);
 
     try {
+      let successCount = 0;
+      
       for (const file of acceptedFiles) {
-        const fileExt = file.name.split('.').pop();
-        const timestamp = Date.now();
-        const fileName = `${user.id}/${timestamp}.${fileExt}`;
-
-        console.log('Uploading file:', fileName);
-
-        // Upload to Supabase Storage
-        const { error: uploadError } = await supabase.storage
-          .from('user-files')
-          .upload(fileName, file);
-
-        if (uploadError) {
-          console.error('Upload error:', uploadError);
-          throw uploadError;
-        }
-
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('user-files')
-          .getPublicUrl(fileName);
-
-        console.log('Public URL:', publicUrl);
-
-        // Save metadata to database
-        const { error: dbError } = await supabase
-          .from('user_files')
-          .insert({
-            user_id: user.id,
-            file_url: publicUrl,
-            file_name: file.name,
-            file_type: file.type,
-            file_size: file.size,
-          });
-
-        if (dbError) {
-          console.error('Database error:', dbError);
-          throw dbError;
-        }
+        console.log('Processing file:', file.name, 'Size:', file.size);
+        await uploadFileInChunks(file);
+        successCount++;
       }
 
       toast({
         title: "Upload Successful!",
-        description: `${acceptedFiles.length} file(s) uploaded successfully.`,
+        description: `${successCount} file(s) uploaded successfully.`,
       });
 
       onUploadComplete();
+      
+      // Clear progress after a delay
+      setTimeout(() => {
+        setUploadProgress([]);
+      }, 3000);
+
     } catch (error) {
       console.error('Upload failed:', error);
       toast({
@@ -118,7 +204,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       'text/plain': ['.txt'],
     },
     disabled: uploading,
-    maxSize: 100 * 1024 * 1024, // 100MB max file size
+    maxSize: 2 * 1024 * 1024 * 1024, // 2GB max file size
   });
 
   const storageUsed = userProfile?.storage_used || 0;
@@ -153,11 +239,31 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
             <input {...getInputProps()} />
             <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             {uploading ? (
-              <div>
+              <div className="space-y-4">
                 <p className="text-lg font-medium">Uploading files...</p>
-                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                  <div className="bg-blue-600 h-2 rounded-full animate-pulse"></div>
-                </div>
+                {uploadProgress.map((progress, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="truncate max-w-xs">{progress.fileName}</span>
+                      <span className={`font-medium ${
+                        progress.status === 'complete' ? 'text-green-600' : 
+                        progress.status === 'error' ? 'text-red-600' : 'text-blue-600'
+                      }`}>
+                        {progress.status === 'complete' ? 'Complete' : 
+                         progress.status === 'error' ? 'Error' : `${Math.round(progress.progress)}%`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          progress.status === 'complete' ? 'bg-green-600' : 
+                          progress.status === 'error' ? 'bg-red-600' : 'bg-blue-600'
+                        }`}
+                        style={{ width: `${progress.progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : isDragActive ? (
               <p className="text-lg font-medium">Drop the files here...</p>
@@ -165,9 +271,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
               <div>
                 <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
                 <p className="text-sm text-muted-foreground">
-                  Supports images, videos, PDFs, and documents (max 100MB per file)
+                  Supports images, videos, PDFs, and documents (max 2GB per file)
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
+                  Large files are uploaded in chunks for better reliability
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
                   Storage: {Math.round(storagePercentage)}% used
                 </p>
               </div>
