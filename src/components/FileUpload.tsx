@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload } from 'lucide-react';
+import { Upload, Zap } from 'lucide-react';
 import { UserProfile } from '@/hooks/useUserProfile';
 import { UPLOAD_CONFIG } from './upload/uploadConfig';
 import { uploadFileInChunks } from './upload/chunkUploadUtils';
@@ -54,17 +54,22 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
 
     try {
       let successCount = 0;
+      const uploadStartTime = performance.now();
       
-      // Process files sequentially to avoid overwhelming the system
+      // Process files with maximum speed optimization
       for (const file of acceptedFiles) {
-        console.log('Processing file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+        console.log('🚀 Processing file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
         await uploadFileInChunks(file, user.id, setUploadProgress);
         successCount++;
       }
 
+      const totalTime = (performance.now() - uploadStartTime) / 1000;
+      const totalSizeMB = (totalSize / 1024 / 1024).toFixed(1);
+      const avgSpeed = (totalSize / totalTime / 1024 / 1024).toFixed(1);
+
       toast({
-        title: "Ultra-Fast Upload Complete!",
-        description: `${successCount} file(s) uploaded at maximum speed.`,
+        title: "🚀 MAXIMUM SPEED UPLOAD COMPLETE!",
+        description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed.`,
       });
 
       onUploadComplete();
@@ -75,7 +80,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       }, 3000);
 
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('💥 Upload failed:', error);
       toast({
         title: "Upload Failed",
         description: error instanceof Error ? error.message : 'An error occurred during upload',
@@ -101,30 +106,39 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     <div className="space-y-4">
       <StorageWarning storagePercentage={storagePercentage} />
 
-      <Card className="border-2 border-dashed border-border hover:border-primary/50 transition-colors">
+      <Card className="border-2 border-dashed border-border hover:border-blue-500 transition-colors">
         <CardContent className="p-6">
           <div
             {...getRootProps()}
             className={`cursor-pointer text-center p-8 rounded-lg transition-colors ${
-              isDragActive ? 'bg-primary/10' : 'hover:bg-muted/50'
+              isDragActive ? 'bg-blue-50 border-blue-300' : 'hover:bg-muted/50'
             }`}
           >
             <input {...getInputProps()} />
-            <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <div className="flex justify-center mb-4">
+              {uploading ? (
+                <Zap className="h-12 w-12 text-blue-600 animate-pulse" />
+              ) : (
+                <Upload className="h-12 w-12 text-muted-foreground" />
+              )}
+            </div>
             {uploading ? (
               <UploadProgressComponent uploadProgress={uploadProgress} />
             ) : isDragActive ? (
-              <p className="text-lg font-medium">Drop the files here for ultra-fast upload...</p>
+              <p className="text-lg font-medium text-blue-600">🚀 Drop files for MAXIMUM SPEED upload...</p>
             ) : (
               <div>
                 <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
                 <p className="text-sm text-muted-foreground">
                   Supports images, videos, PDFs, and documents (max 2GB per file)
                 </p>
-                <p className="text-xs text-muted-foreground mt-2 font-mono">
-                  ⚡ Ultra-Fast: 50MB chunks • 5 parallel uploads • Optimized for speed
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-700 font-semibold flex items-center justify-center gap-1">
+                    <Zap className="h-3 w-3" />
+                    MAXIMUM SPEED: 100MB chunks • 8 parallel uploads • Optimized for speed
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
                   Storage: {Math.round(storagePercentage)}% used
                 </p>
               </div>
