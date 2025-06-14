@@ -43,6 +43,12 @@ export const useRazorpay = () => {
         currency: 'INR',
         name: 'MediaVault',
         description: 'Premium Plan Upgrade',
+        method: {
+          upi: true,
+          card: true,
+          netbanking: true,
+          wallet: true,
+        },
         handler: async (response: any) => {
           try {
             // Call edge function to verify payment and upgrade user
@@ -83,6 +89,10 @@ export const useRazorpay = () => {
               description: "You can upgrade anytime from your dashboard.",
             });
           },
+        },
+        notes: {
+          purpose: 'Premium Plan Upgrade',
+          user_id: user.id,
         },
       };
 
