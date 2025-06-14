@@ -62,19 +62,19 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
 
     setUploading(true);
     setUploadProgress([]);
-    cancellationTokenRef.current = { cancelled: false }; // Reset cancellation token
+    cancellationTokenRef.current = { cancelled: false };
 
     try {
       let successCount = 0;
       const uploadStartTime = performance.now();
       
-      // Process files with maximum speed optimization
+      // Process files with MAXIMUM PARALLEL SPEED optimization
       for (const file of acceptedFiles) {
         if (cancellationTokenRef.current.cancelled) {
           break;
         }
         
-        console.log('🚀 Processing file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+        console.log('🚀 Processing file with PARALLEL upload:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
         await uploadFileInChunks(file, user.id, setUploadProgress, cancellationTokenRef.current);
         successCount++;
       }
@@ -85,8 +85,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
         const avgSpeed = (totalSize / totalTime / 1024 / 1024).toFixed(1);
 
         toast({
-          title: "🚀 MAXIMUM SPEED UPLOAD COMPLETE!",
-          description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed.`,
+          title: "🚀 HIGH-SPEED PARALLEL UPLOAD COMPLETE!",
+          description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed with parallel processing.`,
         });
 
         onUploadComplete();
@@ -155,7 +155,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                 </Button>
               </div>
             ) : isDragActive ? (
-              <p className="text-lg font-medium text-blue-600">🚀 Drop files for MAXIMUM SPEED upload...</p>
+              <p className="text-lg font-medium text-blue-600">🚀 Drop files for HIGH-SPEED PARALLEL upload...</p>
             ) : (
               <div>
                 <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
@@ -165,7 +165,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-xs text-blue-700 font-semibold flex items-center justify-center gap-1">
                     <Zap className="h-3 w-3" />
-                    MAXIMUM SPEED: 10MB chunks • Sequential uploads • Optimized for reliability
+                    HIGH-SPEED PARALLEL: 5MB chunks • 6 concurrent uploads • Optimized for maximum speed
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">

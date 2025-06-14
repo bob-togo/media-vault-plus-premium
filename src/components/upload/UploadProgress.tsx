@@ -16,7 +16,7 @@ interface UploadProgressProps {
 const UploadProgressComponent: React.FC<UploadProgressProps> = ({ uploadProgress }) => {
   return (
     <div className="space-y-4">
-      <p className="text-lg font-medium text-blue-600">🚀 Optimized upload in progress...</p>
+      <p className="text-lg font-medium text-blue-600">🚀 HIGH-SPEED PARALLEL upload in progress...</p>
       {uploadProgress.map((progress, index) => (
         <div key={index} className="space-y-3">
           <div className="flex justify-between text-sm">

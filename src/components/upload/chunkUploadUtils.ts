@@ -25,7 +25,7 @@ export const uploadFileInChunks = async (
   const timestamp = Date.now();
   const fileName = `${userId}/${timestamp}.${fileExt}`;
 
-  console.log('🚀 Starting optimized upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
+  console.log('🚀 Starting HIGH-SPEED PARALLEL upload for:', fileName, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
 
   const totalChunks = Math.ceil(file.size / UPLOAD_CONFIG.CHUNK_SIZE);
   let uploadedChunks = 0;
@@ -39,16 +39,14 @@ export const uploadFileInChunks = async (
     speed: '0 MB/s'
   }]);
 
-  // Create chunks with optimized size for better reliability
+  // Create chunks with optimized size for parallel processing
   const chunks: ChunkData[] = [];
-  console.log(`📦 Creating ${totalChunks} chunks of ~${(UPLOAD_CONFIG.CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB each`);
+  console.log(`📦 Creating ${totalChunks} chunks of ~${(UPLOAD_CONFIG.CHUNK_SIZE / 1024 / 1024).toFixed(1)}MB each for PARALLEL processing`);
   
   for (let i = 0; i < totalChunks; i++) {
     const start = i * UPLOAD_CONFIG.CHUNK_SIZE;
     const end = Math.min(start + UPLOAD_CONFIG.CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end, file.type); // Preserve MIME type
-    
-    console.log(`📦 Chunk ${i + 1}: ${(start / 1024 / 1024).toFixed(1)}MB-${(end / 1024 / 1024).toFixed(1)}MB, size: ${(chunk.size / 1024 / 1024).toFixed(1)}MB`);
+    const chunk = file.slice(start, end, file.type);
     
     chunks.push({
       index: i,
@@ -60,35 +58,29 @@ export const uploadFileInChunks = async (
   }
 
   try {
-    // Upload function with improved error handling and retry logic
+    // High-speed upload function with minimal overhead
     const uploadChunk = async (chunkData: ChunkData) => {
       const { index, chunk, fileName: chunkFileName, size, mimeType } = chunkData;
       const chunkStartTime = performance.now();
       
-      console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB) with MIME type: ${mimeType}`);
+      console.log(`⚡ FAST uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
-        // Check for cancellation before each attempt
         if (cancellationToken.cancelled) {
           console.log(`🛑 Upload cancelled for chunk ${index + 1}`);
           throw new Error('Upload cancelled by user');
         }
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          console.log(`⏰ Timeout for chunk ${index + 1}, attempt ${attempt + 1}`);
-          controller.abort();
-        }, UPLOAD_CONFIG.CONNECTION_TIMEOUT);
+        const timeoutId = setTimeout(() => controller.abort(), UPLOAD_CONFIG.CONNECTION_TIMEOUT);
 
         try {
-          console.log(`🔄 Upload attempt ${attempt + 1} for chunk ${index + 1}`);
-
           const { error: uploadError } = await supabase.storage
             .from('user-files')
             .upload(chunkFileName, chunk, {
               cacheControl: '31536000',
               upsert: index === 0,
-              contentType: mimeType // Use the preserved MIME type
+              contentType: mimeType
             });
 
           clearTimeout(timeoutId);
@@ -98,7 +90,6 @@ export const uploadFileInChunks = async (
             if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw uploadError;
             
             const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt);
-            console.log(`⏳ Retrying chunk ${index + 1} in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
@@ -107,14 +98,12 @@ export const uploadFileInChunks = async (
           const chunkSpeed = (size / chunkTime / 1024 / 1024).toFixed(1);
           console.log(`✅ Chunk ${index + 1} uploaded in ${chunkTime.toFixed(2)}s at ${chunkSpeed} MB/s`);
           
-          // Update progress
+          // Update progress atomically
           uploadedChunks++;
           const currentProgress = (uploadedChunks / totalChunks) * 100;
           const elapsed = (performance.now() - startTime) / 1000;
-          const uploadedBytes = chunks.slice(0, uploadedChunks).reduce((sum, c) => sum + c.size, 0);
+          const uploadedBytes = uploadedChunks * UPLOAD_CONFIG.CHUNK_SIZE;
           const overallSpeed = (uploadedBytes / elapsed / 1024 / 1024).toFixed(1);
-          
-          console.log(`📊 Progress: ${currentProgress.toFixed(1)}% (${uploadedChunks}/${totalChunks} chunks) - Speed: ${overallSpeed} MB/s`);
           
           setUploadProgress(prev => prev.map(p => 
             p.fileName === file.name 
@@ -138,32 +127,44 @@ export const uploadFileInChunks = async (
           
           if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw error;
           
-          const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt) + Math.random() * 1000;
-          console.log(`⏳ Waiting ${delay.toFixed(0)}ms before retry...`);
+          const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     };
 
-    // Upload chunks sequentially for better reliability
-    console.log(`🔥 Starting sequential upload of ${chunks.length} chunks`);
+    // PARALLEL UPLOAD - Process chunks in batches for maximum speed
+    console.log(`🔥 Starting PARALLEL upload with ${UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS} concurrent uploads`);
+    
+    const uploadPromises: Promise<any>[] = [];
+    const semaphore = new Array(UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS).fill(null);
     
     for (let i = 0; i < chunks.length; i++) {
-      // Check for cancellation before each chunk
       if (cancellationToken.cancelled) {
         console.log(`🛑 Upload cancelled at chunk ${i + 1}/${chunks.length}`);
         throw new Error('Upload cancelled by user');
       }
 
-      console.log(`🚀 Processing chunk ${i + 1}/${chunks.length}`);
-      await uploadChunk(chunks[i]);
+      // Wait for an available slot
+      const slotIndex = i % UPLOAD_CONFIG.MAX_CONCURRENT_UPLOADS;
+      if (semaphore[slotIndex]) {
+        await semaphore[slotIndex];
+      }
+      
+      // Start upload and store promise
+      const uploadPromise = uploadChunk(chunks[i]);
+      semaphore[slotIndex] = uploadPromise;
+      uploadPromises.push(uploadPromise);
     }
+
+    // Wait for all uploads to complete
+    await Promise.all(uploadPromises);
 
     // Determine final file reference
     let finalFileName = fileName;
     if (totalChunks > 1) {
       finalFileName = `${fileName}.part0`;
-      console.log('📁 Multi-chunk upload completed, using first chunk as reference');
+      console.log('📁 Multi-chunk PARALLEL upload completed, using first chunk as reference');
     }
 
     // Get public URL
@@ -198,7 +199,7 @@ export const uploadFileInChunks = async (
 
     const totalTime = (performance.now() - startTime) / 1000;
     const avgSpeed = (file.size / totalTime / 1024 / 1024).toFixed(1);
-    console.log(`🎉 Upload complete! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
+    console.log(`🎉 HIGH-SPEED PARALLEL upload complete! Total: ${totalTime.toFixed(2)}s, Average: ${avgSpeed} MB/s`);
 
     return true;
   } catch (error) {
