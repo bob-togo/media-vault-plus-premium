@@ -38,7 +38,7 @@ export const useRazorpay = () => {
       }
 
       const options = {
-        key: 'YOUR_RAZORPAY_KEY_HERE', // Replace with your actual Razorpay key
+        key: 'rzp_test_kzeVYqRFHs9nyo', // Your Razorpay test key ID
         amount: amount * 100, // Amount in paise
         currency: 'INR',
         name: 'MediaVault',
