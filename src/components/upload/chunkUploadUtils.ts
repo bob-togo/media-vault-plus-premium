@@ -8,6 +8,7 @@ interface ChunkData {
   chunk: Blob;
   fileName: string;
   size: number;
+  mimeType: string;
 }
 
 export const uploadFileInChunks = async (
@@ -40,7 +41,7 @@ export const uploadFileInChunks = async (
   for (let i = 0; i < totalChunks; i++) {
     const start = i * UPLOAD_CONFIG.CHUNK_SIZE;
     const end = Math.min(start + UPLOAD_CONFIG.CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end);
+    const chunk = file.slice(start, end, file.type); // Preserve MIME type
     
     console.log(`📦 Chunk ${i + 1}: ${(start / 1024 / 1024).toFixed(1)}MB-${(end / 1024 / 1024).toFixed(1)}MB, size: ${(chunk.size / 1024 / 1024).toFixed(1)}MB`);
     
@@ -48,17 +49,18 @@ export const uploadFileInChunks = async (
       index: i,
       chunk: chunk,
       fileName: totalChunks === 1 ? fileName : `${fileName}.part${i}`,
-      size: chunk.size
+      size: chunk.size,
+      mimeType: file.type || 'application/octet-stream'
     });
   }
 
   try {
     // Upload function with improved error handling and retry logic
     const uploadChunk = async (chunkData: ChunkData) => {
-      const { index, chunk, fileName: chunkFileName, size } = chunkData;
+      const { index, chunk, fileName: chunkFileName, size, mimeType } = chunkData;
       const chunkStartTime = performance.now();
       
-      console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
+      console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB) with MIME type: ${mimeType}`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
         const controller = new AbortController();
@@ -75,7 +77,7 @@ export const uploadFileInChunks = async (
             .upload(chunkFileName, chunk, {
               cacheControl: '31536000',
               upsert: index === 0,
-              contentType: file.type || 'application/octet-stream'
+              contentType: mimeType // Use the preserved MIME type
             });
 
           clearTimeout(timeoutId);
