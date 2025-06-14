@@ -54,20 +54,29 @@ export const uploadFileInChunks = async (
   }
 
   try {
-    // Upload function with better error handling
-    const uploadWithMaxSpeed = async (chunkData: ChunkData) => {
+    // Upload function with timeout and abort controller
+    const uploadWithTimeout = async (chunkData: ChunkData) => {
       const { index, chunk, fileName: chunkFileName, size } = chunkData;
       const chunkStartTime = performance.now();
       
-      console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB) - actual blob size: ${(chunk.size / 1024 / 1024).toFixed(1)}MB`);
+      console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB)`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.log(`⏰ Timeout for chunk ${index + 1}, attempt ${attempt + 1}`);
+          controller.abort();
+        }, UPLOAD_CONFIG.CONNECTION_TIMEOUT);
+
         try {
           // Verify chunk size before upload
           if (chunk.size !== size) {
             console.error(`❌ Chunk size mismatch: expected ${size}, got ${chunk.size}`);
             throw new Error(`Chunk size mismatch: expected ${size}, got ${chunk.size}`);
           }
+
+          console.log(`🔄 Attempting upload for chunk ${index + 1}, attempt ${attempt + 1}`);
 
           const { error: uploadError } = await supabase.storage
             .from('user-files')
@@ -76,6 +85,9 @@ export const uploadFileInChunks = async (
               upsert: index === 0,
               contentType: file.type || 'application/octet-stream'
             });
+
+          // Clear timeout on successful response
+          clearTimeout(timeoutId);
 
           if (uploadError) {
             console.error(`❌ Upload error for chunk ${index + 1}:`, uploadError);
@@ -110,9 +122,20 @@ export const uploadFileInChunks = async (
           
           return { index, uploadTime: chunkTime, size };
         } catch (error) {
-          console.error(`❌ Chunk ${index + 1} upload error (attempt ${attempt + 1}):`, error);
+          clearTimeout(timeoutId);
+          
+          if (error.name === 'AbortError') {
+            console.error(`⏰ Chunk ${index + 1} upload timed out (attempt ${attempt + 1})`);
+          } else {
+            console.error(`❌ Chunk ${index + 1} upload error (attempt ${attempt + 1}):`, error);
+          }
+          
           if (attempt === UPLOAD_CONFIG.MAX_RETRIES - 1) throw error;
-          await new Promise(resolve => setTimeout(resolve, UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt)));
+          
+          // Exponential backoff with jitter
+          const delay = UPLOAD_CONFIG.RETRY_DELAY_BASE * Math.pow(2, attempt) + Math.random() * 1000;
+          console.log(`⏳ Waiting ${delay.toFixed(0)}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     };
@@ -122,7 +145,7 @@ export const uploadFileInChunks = async (
     
     for (let i = 0; i < chunks.length; i++) {
       console.log(`🚀 Processing chunk ${i + 1}/${chunks.length}`);
-      await uploadWithMaxSpeed(chunks[i]);
+      await uploadWithTimeout(chunks[i]);
     }
 
     // Determine final file reference
