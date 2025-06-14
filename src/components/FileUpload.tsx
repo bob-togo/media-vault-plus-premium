@@ -20,7 +20,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
   const [uploading, setUploading] = useState(false);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!user || !userProfile) return;
+    if (!user || !userProfile) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to upload files.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Check storage limit
     const totalSize = acceptedFiles.reduce((sum, file) => sum + file.size, 0);
@@ -43,19 +50,27 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     try {
       for (const file of acceptedFiles) {
         const fileExt = file.name.split('.').pop();
-        const fileName = `media/${user.id}/${Date.now()}.${fileExt}`;
+        const timestamp = Date.now();
+        const fileName = `${user.id}/${timestamp}.${fileExt}`;
+
+        console.log('Uploading file:', fileName);
 
         // Upload to Supabase Storage
         const { error: uploadError } = await supabase.storage
           .from('user-files')
           .upload(fileName, file);
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw uploadError;
+        }
 
         // Get public URL
         const { data: { publicUrl } } = supabase.storage
           .from('user-files')
           .getPublicUrl(fileName);
+
+        console.log('Public URL:', publicUrl);
 
         // Save metadata to database
         const { error: dbError } = await supabase
@@ -68,7 +83,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
             file_size: file.size,
           });
 
-        if (dbError) throw dbError;
+        if (dbError) {
+          console.error('Database error:', dbError);
+          throw dbError;
+        }
       }
 
       toast({
@@ -78,6 +96,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
 
       onUploadComplete();
     } catch (error) {
+      console.error('Upload failed:', error);
       toast({
         title: "Upload Failed",
         description: error instanceof Error ? error.message : 'An error occurred during upload',
@@ -99,6 +118,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       'text/plain': ['.txt'],
     },
     disabled: uploading,
+    maxSize: 100 * 1024 * 1024, // 100MB max file size
   });
 
   const storageUsed = userProfile?.storage_used || 0;
@@ -145,7 +165,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
               <div>
                 <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
                 <p className="text-sm text-muted-foreground">
-                  Supports images, videos, PDFs, and documents
+                  Supports images, videos, PDFs, and documents (max 100MB per file)
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
                   Storage: {Math.round(storagePercentage)}% used

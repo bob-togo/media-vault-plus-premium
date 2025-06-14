@@ -37,10 +37,22 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onDeleteFile }) => {
   const isImage = (fileType: string) => fileType.startsWith('image/');
   const isVideo = (fileType: string) => fileType.startsWith('video/');
 
+  const getFilePathFromUrl = (fileUrl: string) => {
+    // Extract the file path from the public URL
+    const urlParts = fileUrl.split('/');
+    const objectIndex = urlParts.findIndex(part => part === 'object');
+    if (objectIndex !== -1 && objectIndex < urlParts.length - 2) {
+      // Return everything after 'object/public/user-files/'
+      return urlParts.slice(objectIndex + 3).join('/');
+    }
+    // Fallback: try to extract from the end of the URL
+    return urlParts.slice(-2).join('/');
+  };
+
   const handleDownload = async (file: UserFile) => {
     try {
-      const filePath = file.file_url.split('/').pop();
-      if (!filePath) throw new Error('Invalid file path');
+      const filePath = getFilePathFromUrl(file.file_url);
+      console.log('Downloading file path:', filePath);
 
       const { data, error } = await supabase.storage
         .from('user-files')
@@ -56,6 +68,7 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onDeleteFile }) => {
       link.click();
       document.body.removeChild(link);
     } catch (error) {
+      console.error('Download failed:', error);
       toast({
         title: "Download Failed",
         description: error instanceof Error ? error.message : 'Failed to download file',
@@ -66,13 +79,15 @@ const FileGrid: React.FC<FileGridProps> = ({ files, onDeleteFile }) => {
 
   const handleDelete = async (file: UserFile) => {
     try {
-      const filePath = file.file_url.split('/').slice(-2).join('/'); // Get user_id/filename
+      const filePath = getFilePathFromUrl(file.file_url);
+      console.log('Deleting file path:', filePath);
       await onDeleteFile(file.id, filePath);
       toast({
         title: "Success",
         description: "File deleted successfully",
       });
     } catch (error) {
+      console.error('Delete failed:', error);
       toast({
         title: "Delete Failed",
         description: error instanceof Error ? error.message : 'Failed to delete file',
