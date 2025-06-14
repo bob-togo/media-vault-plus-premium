@@ -34,6 +34,7 @@ export const useUserFiles = () => {
 
     try {
       setLoading(true);
+      // Note: Still using user_files table name as that's what exists in the database
       const { data, error } = await supabase
         .from('user_files')
         .select('*')

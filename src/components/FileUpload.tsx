@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload } from 'lucide-react';
+import { Upload, AlertTriangle } from 'lucide-react';
 import { UserProfile } from '@/hooks/useUserProfile';
 
 interface FileUploadProps {
@@ -30,7 +30,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     if (currentUsed + totalSize > limit) {
       toast({
         title: "Storage Limit Exceeded",
-        description: "You don't have enough storage space for these files. Consider upgrading to Premium.",
+        description: userProfile.plan_type === 'free' 
+          ? "Upgrade to Premium for 10GB storage!" 
+          : "You've reached your storage limit.",
         variant: "destructive",
       });
       return;
@@ -41,7 +43,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     try {
       for (const file of acceptedFiles) {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+        const fileName = `media/${user.id}/${Date.now()}.${fileExt}`;
 
         // Upload to Supabase Storage
         const { error: uploadError } = await supabase.storage
@@ -70,8 +72,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       }
 
       toast({
-        title: "Success",
-        description: `${acceptedFiles.length} file(s) uploaded successfully!`,
+        title: "Upload Successful!",
+        description: `${acceptedFiles.length} file(s) uploaded successfully.`,
       });
 
       onUploadComplete();
@@ -99,32 +101,61 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
     disabled: uploading,
   });
 
+  const storageUsed = userProfile?.storage_used || 0;
+  const storageLimit = userProfile?.storage_limit || 0;
+  const storagePercentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0;
+  const isNearLimit = storagePercentage > 90;
+
   return (
-    <Card className="border-2 border-dashed border-border hover:border-primary/50 transition-colors">
-      <CardContent className="p-6">
-        <div
-          {...getRootProps()}
-          className={`cursor-pointer text-center p-8 rounded-lg transition-colors ${
-            isDragActive ? 'bg-primary/10' : 'hover:bg-muted/50'
-          }`}
-        >
-          <input {...getInputProps()} />
-          <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          {uploading ? (
-            <p className="text-lg font-medium">Uploading files...</p>
-          ) : isDragActive ? (
-            <p className="text-lg font-medium">Drop the files here...</p>
-          ) : (
-            <div>
-              <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
-              <p className="text-sm text-muted-foreground">
-                Supports images, videos, PDFs, and documents
-              </p>
+    <div className="space-y-4">
+      {isNearLimit && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-orange-700">
+              <AlertTriangle className="h-5 w-5" />
+              <span className="font-medium">Storage Warning</span>
             </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+            <p className="text-sm text-orange-600 mt-1">
+              You're running low on storage space. Consider upgrading to Premium for 10GB storage.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-2 border-dashed border-border hover:border-primary/50 transition-colors">
+        <CardContent className="p-6">
+          <div
+            {...getRootProps()}
+            className={`cursor-pointer text-center p-8 rounded-lg transition-colors ${
+              isDragActive ? 'bg-primary/10' : 'hover:bg-muted/50'
+            }`}
+          >
+            <input {...getInputProps()} />
+            <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            {uploading ? (
+              <div>
+                <p className="text-lg font-medium">Uploading files...</p>
+                <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                  <div className="bg-blue-600 h-2 rounded-full animate-pulse"></div>
+                </div>
+              </div>
+            ) : isDragActive ? (
+              <p className="text-lg font-medium">Drop the files here...</p>
+            ) : (
+              <div>
+                <p className="text-lg font-medium mb-2">Drag & drop files here, or click to select</p>
+                <p className="text-sm text-muted-foreground">
+                  Supports images, videos, PDFs, and documents
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Storage: {Math.round(storagePercentage)}% used
+                </p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
