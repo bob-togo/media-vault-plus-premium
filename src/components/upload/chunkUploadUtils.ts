@@ -11,10 +11,15 @@ interface ChunkData {
   mimeType: string;
 }
 
+interface CancellationToken {
+  cancelled: boolean;
+}
+
 export const uploadFileInChunks = async (
   file: File,
   userId: string,
-  setUploadProgress: React.Dispatch<React.SetStateAction<UploadProgress[]>>
+  setUploadProgress: React.Dispatch<React.SetStateAction<UploadProgress[]>>,
+  cancellationToken: CancellationToken
 ) => {
   const fileExt = file.name.split('.').pop();
   const timestamp = Date.now();
@@ -63,6 +68,12 @@ export const uploadFileInChunks = async (
       console.log(`⚡ Uploading chunk ${index + 1}/${totalChunks} (${(size / 1024 / 1024).toFixed(1)}MB) with MIME type: ${mimeType}`);
       
       for (let attempt = 0; attempt < UPLOAD_CONFIG.MAX_RETRIES; attempt++) {
+        // Check for cancellation before each attempt
+        if (cancellationToken.cancelled) {
+          console.log(`🛑 Upload cancelled for chunk ${index + 1}`);
+          throw new Error('Upload cancelled by user');
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => {
           console.log(`⏰ Timeout for chunk ${index + 1}, attempt ${attempt + 1}`);
@@ -138,6 +149,12 @@ export const uploadFileInChunks = async (
     console.log(`🔥 Starting sequential upload of ${chunks.length} chunks`);
     
     for (let i = 0; i < chunks.length; i++) {
+      // Check for cancellation before each chunk
+      if (cancellationToken.cancelled) {
+        console.log(`🛑 Upload cancelled at chunk ${i + 1}/${chunks.length}`);
+        throw new Error('Upload cancelled by user');
+      }
+
       console.log(`🚀 Processing chunk ${i + 1}/${chunks.length}`);
       await uploadChunk(chunks[i]);
     }
@@ -186,9 +203,12 @@ export const uploadFileInChunks = async (
     return true;
   } catch (error) {
     console.error('💥 Upload failed:', error);
+    
+    // Update progress based on error type
+    const status = error.message.includes('cancelled') ? 'cancelled' : 'error';
     setUploadProgress(prev => prev.map(p => 
       p.fileName === file.name 
-        ? { ...p, status: 'error' }
+        ? { ...p, status }
         : p
     ));
     throw error;

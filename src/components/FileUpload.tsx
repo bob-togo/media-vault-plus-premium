@@ -1,11 +1,11 @@
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, Zap } from 'lucide-react';
+import { Upload, Zap, X } from 'lucide-react';
 import { UserProfile } from '@/hooks/useUserProfile';
 import { UPLOAD_CONFIG } from './upload/uploadConfig';
 import { uploadFileInChunks } from './upload/chunkUploadUtils';
@@ -22,6 +22,17 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
   const { toast } = useToast();
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
+  const cancellationTokenRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+
+  const cancelUpload = () => {
+    cancellationTokenRef.current.cancelled = true;
+    setUploading(false);
+    toast({
+      title: "Upload Cancelled",
+      description: "The upload has been cancelled by the user.",
+      variant: "destructive",
+    });
+  };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!user || !userProfile) {
@@ -51,6 +62,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
 
     setUploading(true);
     setUploadProgress([]);
+    cancellationTokenRef.current = { cancelled: false }; // Reset cancellation token
 
     try {
       let successCount = 0;
@@ -58,34 +70,42 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
       
       // Process files with maximum speed optimization
       for (const file of acceptedFiles) {
+        if (cancellationTokenRef.current.cancelled) {
+          break;
+        }
+        
         console.log('🚀 Processing file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(1), 'MB');
-        await uploadFileInChunks(file, user.id, setUploadProgress);
+        await uploadFileInChunks(file, user.id, setUploadProgress, cancellationTokenRef.current);
         successCount++;
       }
 
-      const totalTime = (performance.now() - uploadStartTime) / 1000;
-      const totalSizeMB = (totalSize / 1024 / 1024).toFixed(1);
-      const avgSpeed = (totalSize / totalTime / 1024 / 1024).toFixed(1);
+      if (!cancellationTokenRef.current.cancelled) {
+        const totalTime = (performance.now() - uploadStartTime) / 1000;
+        const totalSizeMB = (totalSize / 1024 / 1024).toFixed(1);
+        const avgSpeed = (totalSize / totalTime / 1024 / 1024).toFixed(1);
 
-      toast({
-        title: "🚀 MAXIMUM SPEED UPLOAD COMPLETE!",
-        description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed.`,
-      });
+        toast({
+          title: "🚀 MAXIMUM SPEED UPLOAD COMPLETE!",
+          description: `${successCount} file(s) uploaded (${totalSizeMB}MB) at ${avgSpeed} MB/s average speed.`,
+        });
 
-      onUploadComplete();
-      
-      // Clear progress after delay
-      setTimeout(() => {
-        setUploadProgress([]);
-      }, 3000);
+        onUploadComplete();
+        
+        // Clear progress after delay
+        setTimeout(() => {
+          setUploadProgress([]);
+        }, 3000);
+      }
 
     } catch (error) {
-      console.error('💥 Upload failed:', error);
-      toast({
-        title: "Upload Failed",
-        description: error instanceof Error ? error.message : 'An error occurred during upload',
-        variant: "destructive",
-      });
+      if (!error.message.includes('cancelled')) {
+        console.error('💥 Upload failed:', error);
+        toast({
+          title: "Upload Failed",
+          description: error instanceof Error ? error.message : 'An error occurred during upload',
+          variant: "destructive",
+        });
+      }
     } finally {
       setUploading(false);
     }
@@ -123,7 +143,17 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
               )}
             </div>
             {uploading ? (
-              <UploadProgressComponent uploadProgress={uploadProgress} />
+              <div className="space-y-4">
+                <UploadProgressComponent uploadProgress={uploadProgress} />
+                <Button 
+                  variant="destructive" 
+                  onClick={cancelUpload}
+                  className="mt-4"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel Upload
+                </Button>
+              </div>
             ) : isDragActive ? (
               <p className="text-lg font-medium text-blue-600">🚀 Drop files for MAXIMUM SPEED upload...</p>
             ) : (
@@ -135,7 +165,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-xs text-blue-700 font-semibold flex items-center justify-center gap-1">
                     <Zap className="h-3 w-3" />
-                    MAXIMUM SPEED: 100MB chunks • 8 parallel uploads • Optimized for speed
+                    MAXIMUM SPEED: 10MB chunks • Sequential uploads • Optimized for reliability
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">

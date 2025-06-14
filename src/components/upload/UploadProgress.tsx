@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 export interface UploadProgress {
   fileName: string;
   progress: number;
-  status: 'uploading' | 'complete' | 'error';
+  status: 'uploading' | 'complete' | 'error' | 'cancelled';
   speed?: string;
 }
 
@@ -27,10 +27,14 @@ const UploadProgressComponent: React.FC<UploadProgressProps> = ({ uploadProgress
               </span>
               <span className={`font-bold text-sm ${
                 progress.status === 'complete' ? 'text-green-600' : 
-                progress.status === 'error' ? 'text-red-600' : 'text-blue-600'
+                progress.status === 'error' ? 'text-red-600' : 
+                progress.status === 'cancelled' ? 'text-orange-600' :
+                'text-blue-600'
               }`}>
                 {progress.status === 'complete' ? '✅ Complete' : 
-                 progress.status === 'error' ? '❌ Error' : `⚡ ${Math.round(progress.progress)}%`}
+                 progress.status === 'error' ? '❌ Error' : 
+                 progress.status === 'cancelled' ? '🛑 Cancelled' :
+                 `⚡ ${Math.round(progress.progress)}%`}
               </span>
             </div>
           </div>
@@ -38,7 +42,9 @@ const UploadProgressComponent: React.FC<UploadProgressProps> = ({ uploadProgress
             value={progress.progress} 
             className={`h-3 ${
               progress.status === 'complete' ? 'bg-green-100' : 
-              progress.status === 'error' ? 'bg-red-100' : 'bg-blue-100'
+              progress.status === 'error' ? 'bg-red-100' :
+              progress.status === 'cancelled' ? 'bg-orange-100' :
+              'bg-blue-100'
             }`}
           />
         </div>
