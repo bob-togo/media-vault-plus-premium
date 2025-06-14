@@ -18,6 +18,7 @@ interface UploadProgress {
   fileName: string;
   progress: number;
   status: 'uploading' | 'complete' | 'error';
+  speed?: string;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }) => {
@@ -26,64 +27,86 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
 
-  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+  const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks for faster uploads
+  const MAX_CONCURRENT_UPLOADS = 3; // Parallel uploads
 
   const uploadFileInChunks = async (file: File) => {
     const fileExt = file.name.split('.').pop();
     const timestamp = Date.now();
     const fileName = `${user!.id}/${timestamp}.${fileExt}`;
 
-    console.log('Starting chunked upload for:', fileName, 'Size:', file.size);
+    console.log('Starting parallel chunked upload for:', fileName, 'Size:', file.size);
 
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     let uploadedChunks = 0;
+    const startTime = Date.now();
 
     // Initialize progress tracking
     setUploadProgress(prev => [...prev, {
       fileName: file.name,
       progress: 0,
-      status: 'uploading'
+      status: 'uploading',
+      speed: '0 MB/s'
     }]);
 
+    // Create chunks array
+    const chunks = [];
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      chunks.push({
+        index: i,
+        chunk: file.slice(start, end),
+        fileName: totalChunks === 1 ? fileName : `${fileName}.part${i}`
+      });
+    }
+
     try {
-      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-        const start = chunkIndex * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        const chunk = file.slice(start, end);
+      // Upload chunks in parallel batches
+      for (let i = 0; i < chunks.length; i += MAX_CONCURRENT_UPLOADS) {
+        const batch = chunks.slice(i, i + MAX_CONCURRENT_UPLOADS);
+        
+        const uploadPromises = batch.map(async ({ index, chunk, fileName: chunkFileName }) => {
+          console.log(`Uploading chunk ${index + 1}/${totalChunks} for ${file.name}`);
 
-        const chunkFileName = totalChunks === 1 ? fileName : `${fileName}.part${chunkIndex}`;
+          const { error: uploadError } = await supabase.storage
+            .from('user-files')
+            .upload(chunkFileName, chunk, {
+              cacheControl: '3600',
+              upsert: index === 0 // Only upsert for the first chunk
+            });
 
-        console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} for ${file.name}`);
+          if (uploadError) {
+            console.error('Chunk upload error:', uploadError);
+            throw uploadError;
+          }
 
-        const { error: uploadError } = await supabase.storage
-          .from('user-files')
-          .upload(chunkFileName, chunk, {
-            cacheControl: '3600',
-            upsert: chunkIndex === 0 // Only upsert for the first chunk
-          });
+          return index;
+        });
 
-        if (uploadError) {
-          console.error('Chunk upload error:', uploadError);
-          throw uploadError;
-        }
+        // Wait for current batch to complete
+        await Promise.all(uploadPromises);
+        uploadedChunks += batch.length;
 
-        uploadedChunks++;
+        // Calculate progress and speed
         const progress = (uploadedChunks / totalChunks) * 100;
+        const elapsed = (Date.now() - startTime) / 1000; // seconds
+        const uploadedBytes = uploadedChunks * CHUNK_SIZE;
+        const speed = (uploadedBytes / elapsed / 1024 / 1024).toFixed(1); // MB/s
 
         // Update progress
         setUploadProgress(prev => prev.map(p => 
           p.fileName === file.name 
-            ? { ...p, progress }
+            ? { ...p, progress, speed: `${speed} MB/s` }
             : p
         ));
       }
 
-      // If file was uploaded in multiple chunks, we need to combine them
+      // If file was uploaded in multiple chunks, use the first chunk as reference
       let finalFileName = fileName;
       let publicUrl = '';
 
       if (totalChunks > 1) {
-        // For multi-chunk uploads, use the first chunk as the final file
         finalFileName = `${fileName}.part0`;
         console.log('Multi-chunk upload completed, using first chunk as reference');
       }
@@ -245,13 +268,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                   <div key={index} className="space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="truncate max-w-xs">{progress.fileName}</span>
-                      <span className={`font-medium ${
-                        progress.status === 'complete' ? 'text-green-600' : 
-                        progress.status === 'error' ? 'text-red-600' : 'text-blue-600'
-                      }`}>
-                        {progress.status === 'complete' ? 'Complete' : 
-                         progress.status === 'error' ? 'Error' : `${Math.round(progress.progress)}%`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{progress.speed}</span>
+                        <span className={`font-medium ${
+                          progress.status === 'complete' ? 'text-green-600' : 
+                          progress.status === 'error' ? 'text-red-600' : 'text-blue-600'
+                        }`}>
+                          {progress.status === 'complete' ? 'Complete' : 
+                           progress.status === 'error' ? 'Error' : `${Math.round(progress.progress)}%`}
+                        </span>
+                      </div>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
@@ -274,7 +300,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadComplete, userProfile }
                   Supports images, videos, PDFs, and documents (max 2GB per file)
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Large files are uploaded in chunks for better reliability
+                  Optimized for large files with parallel chunk uploads
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Storage: {Math.round(storagePercentage)}% used
